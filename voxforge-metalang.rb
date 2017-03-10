@@ -1,61 +1,85 @@
-class FileFunctions
-
-	def initialize(folder_name)
+class VoxforgeOperations
+	def initialize(destination, folder_name)
+		@destination = destination
 		@folder_name = folder_name
 	end
 
 	def unzip_folder
-		`tar -xvzf "#{@folder_name}.tgz"`
+		`tar -xvzf "#{@destination}/#{@folder_name}.tgz" -C "#{@destination}"`
 	end
 
-	def create_index_file(file_name='index.txt')
-		`touch "#{@folder_name}/#{file_name}"`
+	def copy_prompts
+		`cat "#{@destination}/#{@folder_name}/etc/prompts-original" >> "#{@destination}/index.txt"`
 	end
 
-	def copy_prompts(src='etc/prompts-original', destination='index.txt')
-		`cat "#{@folder_name}/#{src}" >> "#{@folder_name}/#{destination}"`
+	def convert_wav_files
+		Dir.glob("#{@destination}/#{@folder_name}/wav/*.wav") do |file|
+	  	filename = File.basename(file, ".wav")
+	 		`sox "#{@destination}/#{@folder_name}/wav/#{filename}.wav" "#{@destination}/#{filename}.flac"`
+		end
 	end
 
-	def format_prompts(index_file_name='index.txt')
+	def clean_up_folder
+		`rm -R "#{@destination}/#{@folder_name}"`
+		`rm "#{@destination}/#{@folder_name}.tgz"`
+	end
+end
+
+class MetalangOperations
+	def initialize(folder_name)
+		@folder_name = folder_name
+	end
+
+	def format_prompts
 		# read lines from source prompts
-		a = File.readlines("#{@folder_name}/#{index_file_name}")
-		# remove punctuation except apostaphes and downcase
-		a = a.map{ |line| line.gsub(/\p{P}(?<!')/, '').downcase }
+		a = File.readlines("#{@folder_name}/index.txt")
 		# format the metalang way
 		a = a.map do |line|
-			if line.length > 4 # incase there is a blank line
-				line.insert(5, '.flac').sub(" ", "\t")
-			end
+			next if line.length < 4
+			l = line.gsub(/\p{P}(?<!')/, '').downcase # remove punctuation except apostraphes and downcase
+			l.sub(" ", "<TAB>") # incase there is a blank line
 		end
 		# write this to index.txt
-		File.open("#{@folder_name}/#{index_file_name}", 'w') do |file| 
+		File.open("#{@folder_name}/index.txt", 'w') do |file| 
 			file.puts(a)
 		end
 	end
-
-	def convert_wav_files(src='wav')
-		Dir.glob("#{@folder_name}/#{src}/*.wav") do |file|
-	  	filename = File.basename(file, ".wav")
-	 		`sox "#{@folder_name}/#{src}/#{filename}.wav" "#{@folder_name}/#{filename}.flac"`
-		end
-	end
-
-	def clean_up_files
-		`rm -R "#{@folder_name}/etc"`
-		`rm -R "#{@folder_name}/wav"`
-		`rm "#{@folder_name}/LICENSE"`
-	end
-
 end
 
-Dir.glob('./*.tgz') do |file|
-	folder_name = File.basename(file, ".tgz")
-	f = FileFunctions.new(folder_name)
 
-	f.unzip_folder
-	f.create_index_file
-	f.copy_prompts
-	f.format_prompts
-	f.convert_wav_files
-	f.clean_up_files
+FOLDERS = ['voxforge-dev', 'voxforge-test', 'voxforge-train']
+
+# set up voxforge folders
+FOLDERS.each do |folder|
+	`mkdir "#{folder}"`
+	`touch "#{folder}/index.txt"`
+end
+
+# sort archives into respective folders
+FOLDERS.each do |folder|
+	Dir.glob("./*.tgz") do |file|
+		file_name = File.basename(file)
+		allocation = file_name.to_i(36).digits.last
+		if (1..2).include? allocation
+			`mv "#{file_name}" voxforge-dev`
+		elsif (3..8).include? allocation
+			`mv "#{file_name}" voxforge-train`
+		else
+			`mv "#{file_name}" voxforge-test`
+		end
+	end
+end
+
+# process each of the folders
+FOLDERS.each do |folder|
+	m = MetalangOperations.new(folder)
+	Dir.glob("#{folder}/*.tgz") do |file|
+		file_name = File.basename(file, ".tgz")
+		f = VoxforgeOperations.new(folder, file_name)
+		f.unzip_folder
+		f.copy_prompts
+		f.convert_wav_files
+		f.clean_up_folder
+	end
+	m.format_prompts
 end
