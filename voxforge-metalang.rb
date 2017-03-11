@@ -1,3 +1,5 @@
+require 'digest/md5'
+
 class VoxforgeOperations
 	def initialize(destination, folder_name)
 		@destination = destination
@@ -59,11 +61,12 @@ end
 FOLDERS.each do |folder|
 	Dir.glob("./*.tgz") do |file|
 		file_name = File.basename(file)
-		allocation = file_name.to_i(36).digits.last
-		if (1..2).include? allocation
-			`mv "#{file_name}" voxforge-dev`
-		elsif (3..8).include? allocation
+		speaker_id = file_name.partition('-').first
+		allocation = (Digest::MD5.hexdigest(speaker_id).to_i(16)).digits.first
+		if (0..7).include? allocation
 			`mv "#{file_name}" voxforge-train`
+		elsif [8].include? allocation
+			`mv "#{file_name}" voxforge-dev`
 		else
 			`mv "#{file_name}" voxforge-test`
 		end
